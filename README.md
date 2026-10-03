@@ -14,11 +14,7 @@ The system turns a single Google Sheet into an automated workflow for:
 
 > **Built end-to-end with Claude (Anthropic) from a structured engineering specification written by me. I own the specification, testing, debugging, and review process.**
 
-**Stack:** Google Apps Script (V8) · Google Sheets · Google Forms · Gmail · HTML Email  
-**Status:** Working prototype  
-**Test result:** `[Add final result, e.g. 8/8 passed on 03-Oct-2026]`  
-**Author:** `[Your Name]` · `[LinkedIn Profile]`  
-**Demo Sheet:** `[View / Make a Copy]`
+
 
 ---
 
@@ -392,19 +388,7 @@ The system includes an **8-case manual test plan**.
 | 7 | Low score | Customer receives recovery message and owner receives alert |
 | 8 | Stop + reply detection | Stopped invoices stop further automation and replies are flagged |
 
-### Test result
 
-```text
-[Add final result here]
-
-Example:
-
-8/8 test cases passed
-Tested: 03-Oct-2026
-Environment: Gmail + Google Sheets + Google Forms
-```
-
-The test result should only be updated after manually running the complete checklist.
 
 ---
 
@@ -798,13 +782,6 @@ Do not treat AI-generated code as automatically secure, correct, or production-r
 
 ---
 
-# 22. License
-
-This project is licensed under the **MIT License**.
-
-See `LICENSE` for details.
-
----
 
 ## Project Summary
 
