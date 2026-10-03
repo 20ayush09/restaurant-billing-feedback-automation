@@ -1,0 +1,77 @@
+ROLE
+You are a senior Google Apps Script engineer and email-template designer. Build a complete, production-ready restaurant billing and feedback automation. Do not assume anything not stated here. Anything unspecified goes into the CONFIG block as a clearly marked placeholder.
+
+OBJECTIVE
+The owner enters a customer row in Google Sheets. The system emails a beautifully designed invoice and, as a separate email at the same time, a feedback form link. It sends timed reminders if the form is not filled. It scores the response, sends a follow-up email, and flags low scores for manual reply. Everything runs automatically through triggers.
+
+OUTPUT FORMAT (deliver in this order)
+1. Code.gs: one file with sections: CONFIG, SETUP, SHEET FORMATTING, FORM BUILDER, EMAIL TEMPLATES, CORE LOGIC, TRIGGER HANDLERS, TRIGGER INSTALLER, UTILITIES. Every function has a short comment.
+2. Setup guide: numbered steps from "create the sheet" to "first test", including authorization steps.
+3. Manual-step checklist: anything the API cannot do (see FORM section).
+4. Test plan: 8 test cases with expected results.
+
+CONFIG (top of the file; every value editable in one place)
+RESTAURANT_NAME, OWNER_EMAIL, SENDER_NAME, REPLY_TO, LOGO_URL (optional), ADDRESS, PHONE, CURRENCY_SYMBOL = "₹", TIMEZONE = "Asia/Kolkata", REMINDER_INTERVAL_MINUTES = 10, MAX_REMINDERS = 2, LOW_SCORE_THRESHOLD = 3.0, ESCALATION_TEXT = "[PLACEHOLDER: to be provided]", ENABLE_OWNER_ALERT, SHEET_NAME, FORM_ID (auto-saved to Script Properties after creation). Store IDs in Script Properties. Never hard-code secrets.
+
+SHEET SPEC
+Main sheet columns, in this exact order:
+A Name | B Email | C Invoice Number | D Invoice Amount | E Status | F Follow-up | G Need to Reply | H Time Sent | I Time Received (Form) | J Time Received (Query)
+Helper columns after J (grouped, with a distinct header shade): K Score | L Reminder Count | M Last Reminder Time | N Error Log
+A second sheet, "Responses", is the form's linked destination.
+
+DROPDOWNS (data validation, reject invalid input)
+- Status: Pending, Ready, Sent, Feedback Sent, Stop
+- Follow-up: Not Started, Awaiting Response, Reminder 1 Sent, Reminder 2 Sent, Responded, Reminders Exhausted, Stopped
+- Need to Reply: Yes, No, Resolved
+Other validation: valid email format in B, number greater than 0 in D, unique Invoice Number in C (custom formula), Name not blank.
+
+STATUS MEANING
+Pending = row being entered, script ignores it. Ready = owner approves, script sends. Sent = invoice email sent (script sets). Feedback Sent = form email sent (script sets). Stop = halts everything for that row, including reminders. Script-managed columns (F, H-N) are protected with a warning.
+
+SHEET FORMATTING (must be in code, run by a setupSheet() function)
+- Header row: black (#0B0B0B) background, gold (#C9A24B) bold text, centered, taller row, frozen.
+- Cream (#F5EFE0) banded rows, thin gold borders, font Georgia or Lato, consistent column widths, text wrapping off for the data rows.
+- D formatted as ₹ #,##0.00. H, I, J, M formatted as dd-mmm-yyyy hh:mm.
+- Conditional formatting: G = "Yes" gets a red fill and bold text, "No" gets a green fill, "Resolved" gets grey. Status colors: Pending grey, Ready blue, Sent and Feedback Sent green, Stop dark red. K below the threshold is red text.
+- Helper columns H-N are slightly muted so the owner-entered columns A-E stand out.
+- Auto-create the sheet if missing. The function is idempotent (safe to re-run).
+
+GOOGLE FORM SPEC (created by createFeedbackForm() in code)
+- Title: "[RESTAURANT_NAME] Dining Feedback". Short, warm description. No free-text questions.
+- Short-answer field "Invoice Number" (required, prefilled per customer, with the help text "Please do not change this").
+- Rating questions, scale 1 to 5 with labels (1 = Poor, 5 = Excellent), all required: Food Taste and Quality, Service and Staff, Ambience, Cleanliness, Value for Money.
+- Confirmation message set. Limit to 1 response. Linked to the "Responses" sheet via setDestination.
+- Generate a prefilled link per customer with createResponse().withItemResponse().toPrefilledUrl().
+- The Forms API cannot set theme colors or a header image. In the manual checklist, give exact steps for a black/gold/cream theme, a Playfair Display or similar serif heading font, and the header image.
+
+EMAIL SPEC (HTML only, no PDF)
+General: table-based layout, inline CSS only, 600px max width, responsive on mobile, tested for Gmail light and dark mode, web-safe serif fallbacks (Georgia), no external images except the optional LOGO_URL, plus a plain-text fallback. Palette: black #0B0B0B, gold #C9A24B, cream #F5EFE0. The look is a fine-dining printed bill: generous whitespace, thin gold dividers, small-caps labels, restrained typography. It must not look like a generic AI or newsletter template.
+1. Invoice email: restaurant name header (or logo), "INVOICE" label, Invoice Number, date, "Billed to" Name and Email, a single amount block (the only data available is Name, Email, Invoice Number and Amount, so do not invent items, tax or discounts), a large total in gold, a thank-you line, and a footer with address and phone.
+2. Feedback request email (sent right after the invoice, as a separate email): a short, warm invitation, a gold "Share Your Experience" button with the prefilled link, and a "takes under a minute" note.
+3. Reminder email: the same style, a gentler tone, the same prefilled link. Wording differs between reminder 1 and reminder 2.
+4. Thank-you follow-up (score at or above the threshold): a gratitude note.
+5. Low-score follow-up (score below the threshold): the thank-you note plus the ESCALATION_TEXT block, styled as a distinct callout.
+6. Owner alert (if ENABLE_OWNER_ALERT): a plain, scannable email with the customer, invoice number, score, and a link to the sheet row.
+
+CORE LOGIC
+- Send flow: when Status becomes Ready, validate the row. Check the invoice number is not duplicated and MailApp.getRemainingDailyQuota() is at least 2. Send the invoice, set Status to Sent, and write the timestamp to H. Then send the feedback email, set Status to Feedback Sent, and set Follow-up to Awaiting Response. On failure, write to N and leave the status unchanged.
+- Reminders: for rows with Feedback Sent, no response yet, Follow-up not Stopped or Responded, and L below MAX_REMINDERS, send a reminder when now minus (H or M) is at least REMINDER_INTERVAL_MINUTES. Increment L, set M, and set Follow-up to "Reminder N Sent". After MAX_REMINDERS, set Follow-up to "Reminders Exhausted" and stop.
+- Form response: match by Invoice Number. Score = the average of the 5 ratings, rounded to 2 decimals. Write K and I. If the score is below LOW_SCORE_THRESHOLD, send the low-score follow-up, set G to Yes, and send the owner alert. Otherwise send the thank-you and set G to No. Set Follow-up to Responded. Ignore duplicate responses for the same invoice. Ignore a response if Status is Stop.
+- Query detection: scan Gmail threads for customer replies to the invoice or feedback emails. On the first reply, write the timestamp to J and set G to Yes unless it is already Resolved.
+- Wrap each handler in try/catch. Use LockService so overlapping triggers never double-send. Never send twice for the same row and stage.
+
+TRIGGERS (create all in an idempotent installTriggers() that deletes the old ones first; also provide removeTriggers())
+1. onOpen (simple): adds a custom menu with Setup Sheet, Create Form, Install Triggers, Send Ready Now, Remove Triggers.
+2. Installable onEdit (spreadsheet): when column E changes to Ready, run the send flow. When it changes to Stop, set Follow-up to Stopped.
+3. Installable onFormSubmit (form or spreadsheet): runs the response handler.
+4. Time-driven, every 1 minute: a safety sweep that sends any Ready rows missed, and checks reminder timing. (The reminder interval is enforced in code, since time triggers run at 1-minute minimum granularity.)
+5. Time-driven, every 5 minutes: scans Gmail for customer queries.
+6. Time-driven, daily at 9 AM: emails the owner a summary (sent today, pending responses, rows needing a reply, errors, quota remaining).
+
+ACCEPTANCE CRITERIA
+- One-click setup via the menu. Re-running anything never duplicates triggers, sheets, forms, or emails.
+- All dropdowns, formats, and conditional rules are applied by code.
+- The invoice email renders correctly in Gmail desktop, Gmail mobile, and dark mode.
+- A row set to Stop never gets another email.
+- The quota is checked and respected (free Gmail is about 100 emails/day; each customer uses 2 to 5).
+- No free-text customer input is ever used in an email without escaping HTML.
